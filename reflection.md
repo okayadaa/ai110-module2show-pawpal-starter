@@ -4,13 +4,19 @@
 
 **a. Initial design**
 
-- Briefly describe your initial UML design.
-- What classes did you include, and what responsibilities did you assign to each?
+- Briefly describe your initial UML design:
+Based on my UML design, the Owner following attributes is having their own unique id, first name, and last name. Along with pet's info. Therefore, owner owns pet. Owner's pet attibutes has first name, last name, and age. Owner uses Owner scheduler which following attribute has chackboxes, date, duration, and priorities. Thats where it would generate Daily Schedule and displaying Daily Plan. Owner has Owner tasks. Owner tasks includes walks, feeding, medications, appointments, and other.
+  
+- What classes did you include, and what responsibilities did you assign to each:
+The four given classes is Owner, Pet, Tasks, and Scheduler.
+For Owner class, there responsibilites is user have their own unique id and their info is contain which includes their first name, last name, and their pet. For Pet class, it's the owner pet info such as first name, last name, age, and any special needs. For Task class, it's user's keeping track of their pet's walks, feeding, medications, appointments, and other (custom). For Scheduler class, it's purpose is where it generates a plan for the user on specific task that must be completed based on it's priorities. 
 
 **b. Design changes**
 
-- Did your design change during implementation?
-- If yes, describe at least one change and why you made it.
+- Did your design change during implementation:
+Yes, the only specific changes I made is DailyPlan and Scheduler because DailyPlan would summarize and explain the final schedule. Scheduler would have their own algorithm in order to build a plan based on the tasks.
+- If yes, describe at least one change and why you made it:
+One change I made is DailyPlan is to not summarize and explain. Instead to display the list of task that user inputted. And Scheduler would sort the priority and filter feasible to build a plan for the owner. 
 
 ---
 

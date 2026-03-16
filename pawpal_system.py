@@ -19,42 +19,53 @@ UML summary
 
 Owner
     - name: str
-    - pet: Pet
+    - pets: list[Pet]            # 1 or 2 pets
     - available_minutes: int
     - preferred_start_time: str  # e.g. "08:00"
+    + add_pet(pet: Pet) -> None
+    + get_pets() -> list[Pet]
     + add_task(task: Task) -> None
     + remove_task(title: str) -> bool
     + get_tasks() -> list[Task]
 
-ScheduledTask
-    - task: Task
-    - start_time: str
-    - end_time: str
-    - reason: str
-
 DailyPlan
-    - scheduled_tasks: list[ScheduledTask]
+    - tasks_to_complete: list[Task]
+    - checkbox_state: dict[str, bool]
     - skipped_tasks: list[Task]
     - total_duration_minutes: int
-    + summary() -> str
-    + explain() -> str
+    + get_checklist_items() -> list[tuple[Task, bool]]
 
 Scheduler
     - owner: Owner
     + build_plan() -> DailyPlan
-    + _filter_feasible(tasks, budget) -> list[Task]
+    + _filter_feasible(tasks, budget) -> tuple[list[Task], list[Task]]
     + _sort_by_priority(tasks) -> list[Task]
-    + _assign_times(tasks, start) -> list[ScheduledTask]
-    + _build_reason(task) -> str
 """
 
 from __future__ import annotations
 from dataclasses import dataclass, field
+from datetime import datetime, timedelta
 
 
 # ---------------------------------------------------------------------------
 # Dataclasses
 # ---------------------------------------------------------------------------
+
+ALLOWED_CATEGORIES = {"feeding", "walking", "medication", "grooming", "other"}
+_CATEGORY_ALIASES = {
+    "walk": "walking",
+    "walks": "walking",
+    "meds": "medication",
+    "medicine": "medication",
+    "enrichment": "other",
+}
+
+
+def normalize_category(category: str | None) -> str:
+    """Map a raw category value into the supported category set."""
+    normalized = (category or "").strip().lower()
+    normalized = _CATEGORY_ALIASES.get(normalized, normalized)
+    return normalized if normalized in ALLOWED_CATEGORIES else "other"
 
 @dataclass
 class Task:
@@ -62,8 +73,10 @@ class Task:
     title: str
     duration_minutes: int
     priority: str = "medium"       # "low" | "medium" | "high"
-    category: str = "other"        # "feeding" | "walk" | "meds" | "grooming" | "enrichment" | "other"
+    category: str = "other"        # "feeding" | "walking" | "medication" | "grooming" | "other"
     notes: str = ""
+    pet_name: str = ""
+    scheduled_time: str = ""
 
 
 @dataclass
@@ -80,96 +93,196 @@ class Pet:
 # ---------------------------------------------------------------------------
 
 class Owner:
-    """A pet owner who has a pet and a list of care tasks to schedule."""
+    """A pet owner who has 1–2 pets and a list of care tasks to schedule."""
+
+    MAX_PETS = 2
 
     def __init__(
         self,
         name: str,
-        pet: Pet,
+        pets: list[Pet],
         available_minutes: int = 120,
         preferred_start_time: str = "08:00",
     ) -> None:
+        if not pets or len(pets) > self.MAX_PETS:
+            raise ValueError(f"Owner must have 1 or {self.MAX_PETS} pets.")
         self.name = name
-        self.pet = pet
+        self.pets = list(pets)
         self.available_minutes = available_minutes
         self.preferred_start_time = preferred_start_time
         self._tasks: list[Task] = []
 
+    def add_pet(self, pet: Pet) -> None:
+        """Add a second pet. Raises ValueError if owner already has the maximum."""
+        if len(self.pets) >= self.MAX_PETS:
+            raise ValueError(f"An owner can have at most {self.MAX_PETS} pets.")
+        self.pets.append(pet)
+
+    def get_pets(self) -> list[Pet]:
+        """Return the owner's pets."""
+        return list(self.pets)
+
     def add_task(self, task: Task) -> None:
         """Add a care task to the owner's task list."""
-        pass
+        self._tasks.append(task)
+
+    def clear_tasks(self) -> None:
+        """Remove all tasks from the owner's task list."""
+        self._tasks.clear()
 
     def remove_task(self, title: str) -> bool:
         """Remove a task by title. Returns True if found and removed."""
-        pass
+        for index, task in enumerate(self._tasks):
+            if task.title == title:
+                del self._tasks[index]
+                return True
+        return False
 
     def get_tasks(self) -> list[Task]:
         """Return a copy of the current task list."""
-        pass
+        return list(self._tasks)
 
-
-class ScheduledTask:
-    """A Task that has been placed onto the day's timeline."""
-
-    def __init__(self, task: Task, start_time: str, end_time: str, reason: str) -> None:
-        self.task = task
-        self.start_time = start_time
-        self.end_time = end_time
-        self.reason = reason
-
-    def __repr__(self) -> str:
-        pass
+    def get_tasks_by_category(self, category: str) -> list[Task]:
+        """Return tasks that match a category (supports alias values)."""
+        normalized_category = normalize_category(category)
+        return [
+            task
+            for task in self._tasks
+            if normalize_category(task.category) == normalized_category
+        ]
 
 
 class DailyPlan:
-    """The output of the Scheduler: an ordered list of scheduled tasks."""
+    """A checklist-style daily plan containing tasks the user should complete."""
 
     def __init__(
         self,
-        scheduled_tasks: list[ScheduledTask],
+        tasks_to_complete: list[Task],
+        checkbox_state: dict[str, bool],
         skipped_tasks: list[Task],
         total_duration_minutes: int,
     ) -> None:
-        self.scheduled_tasks = scheduled_tasks
+        self.tasks_to_complete = tasks_to_complete
+        self.checkbox_state = checkbox_state
         self.skipped_tasks = skipped_tasks
         self.total_duration_minutes = total_duration_minutes
 
-    def summary(self) -> str:
-        """Return a short human-readable summary of the plan."""
-        pass
-
-    def explain(self) -> str:
-        """Return a detailed explanation of why each task was chosen or skipped."""
-        pass
+    def get_checklist_items(self) -> list[tuple[Task, bool]]:
+        """Return tasks paired with checkbox state for UI display."""
+        return [
+            (task, self.checkbox_state.get(task.title, False))
+            for task in self.tasks_to_complete
+        ]
 
 
 class Scheduler:
-    """Builds a DailyPlan for an Owner based on available time and task priorities."""
+    """Sorts and filters owner tasks, then returns a DailyPlan."""
 
     PRIORITY_ORDER = {"high": 0, "medium": 1, "low": 2}
 
     def __init__(self, owner: Owner) -> None:
         self.owner = owner
 
-    def build_plan(self) -> DailyPlan:
-        """Main entry point: sort, filter, assign times, return a DailyPlan."""
-        pass
+    def build_plan(self, category_filter: str = "all", pet_filter: str = "all") -> DailyPlan:
+        """Main entry point: sort and filter tasks, then return a DailyPlan."""
+        owner_tasks = self.owner.get_tasks()
+        if category_filter != "all":
+            normalized_filter = normalize_category(category_filter)
+            owner_tasks = [
+                task
+                for task in owner_tasks
+                if normalize_category(task.category) == normalized_filter
+            ]
+        if pet_filter != "all":
+            owner_tasks = [
+                task
+                for task in owner_tasks
+                if task.pet_name.strip().lower() == pet_filter.strip().lower()
+            ]
+        sorted_tasks = self._sort_by_priority(owner_tasks)
+        tasks_to_complete, skipped_tasks = self._filter_feasible(
+            sorted_tasks,
+            self.owner.available_minutes,
+        )
+        total_duration = sum(task.duration_minutes for task in tasks_to_complete)
+        checkbox_state = {task.title: False for task in tasks_to_complete}
+        return DailyPlan(
+            tasks_to_complete=tasks_to_complete,
+            checkbox_state=checkbox_state,
+            skipped_tasks=skipped_tasks,
+            total_duration_minutes=total_duration,
+        )
+
+    def detect_task_conflicts(self) -> list[tuple[Task, Task]]:
+        """
+        Return overlapping task pairs for different pets.
+
+        A task is considered in conflict when:
+        - both tasks have valid HH:MM scheduled_time values
+        - both tasks have pet_name values
+        - the pets are different
+        - time windows overlap
+        """
+        tasks_with_time = [
+            task
+            for task in self.owner.get_tasks()
+            if task.scheduled_time and task.pet_name and self._parse_time(task.scheduled_time) is not None
+        ]
+
+        conflicts: list[tuple[Task, Task]] = []
+        for index, first_task in enumerate(tasks_with_time):
+            first_start = self._parse_time(first_task.scheduled_time)
+            if first_start is None:
+                continue
+            first_end = first_start + timedelta(minutes=first_task.duration_minutes)
+
+            for second_task in tasks_with_time[index + 1 :]:
+                if first_task.pet_name == second_task.pet_name:
+                    continue
+
+                second_start = self._parse_time(second_task.scheduled_time)
+                if second_start is None:
+                    continue
+                second_end = second_start + timedelta(minutes=second_task.duration_minutes)
+
+                if first_start < second_end and second_start < first_end:
+                    conflicts.append((first_task, second_task))
+
+        return conflicts
 
     def _filter_feasible(self, tasks: list[Task], budget: int) -> tuple[list[Task], list[Task]]:
         """
         Return (feasible, skipped) where feasible tasks fit within the time budget.
         High-priority tasks are never skipped unless they alone exceed the budget.
         """
-        pass
+        used_minutes = 0
+        selected: list[Task] = []
+        skipped: list[Task] = []
+
+        for task in tasks:
+            if used_minutes + task.duration_minutes <= budget:
+                selected.append(task)
+                used_minutes += task.duration_minutes
+            else:
+                skipped.append(task)
+
+        return selected, skipped
 
     def _sort_by_priority(self, tasks: list[Task]) -> list[Task]:
-        """Return tasks sorted high → medium → low, with duration as a tiebreaker."""
-        pass
+        """Return tasks sorted by valid scheduled time, else by priority and duration."""
+        return sorted(
+            tasks,
+            key=lambda task: (
+                self._parse_time(task.scheduled_time) is None,
+                self._parse_time(task.scheduled_time) or datetime.max,
+                self.PRIORITY_ORDER.get(task.priority, 3),
+                task.duration_minutes,
+            ),
+        )
 
-    def _assign_times(self, tasks: list[Task], start_time: str) -> list[ScheduledTask]:
-        """Walk through sorted tasks and assign HH:MM start/end times."""
-        pass
-
-    def _build_reason(self, task: Task) -> str:
-        """Generate a plain-English explanation for why a task was included."""
-        pass
+    def _parse_time(self, time_str: str) -> datetime | None:
+        """Parse HH:MM time string. Returns None for invalid input."""
+        try:
+            return datetime.strptime(time_str, "%H:%M")
+        except ValueError:
+            return None
