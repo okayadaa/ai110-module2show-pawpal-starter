@@ -41,3 +41,17 @@ pip install -r requirements.txt
 5. Add tests to verify key behaviors.
 6. Connect your logic to the Streamlit UI in `app.py`.
 7. Refine UML so it matches what you actually built.
+
+### Testing PawPal+
+
+test_normalized_category_aliases is based on a specific keys that highlights with assoication with task filters such as "Feeding", "Walking", and "Medications"
+
+test_build_plan_priority_order is a sorting method on which is the most significant priority to least significant priority
+
+test_build_task_duration_order is another sorting method where tasks are in chronological ordering. Tasks with schedule time are sorted by time whiler perserving priority behavior
+
+test_detect_task_conficts is where it would alert the owner if the one schedule overlaps the other pet schedule. Vertifying the conflict is detected
+
+test_build_plan_pet_filter_tasks is categorizing pets when user input that they have two pets. Under each owner's pet, provided with the list of tasks that must be track between two pets 
+
+
